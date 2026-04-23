@@ -670,37 +670,73 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldConcurrency := user.Concurrency
 	oldStatus := user.Status
 	oldRole := user.Role
+	oldEmail := user.Email
+	oldUsername := user.Username
+	oldNotes := user.Notes
 
-	if input.Email != "" {
-		user.Email = input.Email
-	}
-	if input.Password != "" {
-		if err := user.SetPassword(input.Password); err != nil {
+	emailUnchanged := input.Email == "" || input.Email == oldEmail
+	usernameUnchanged := input.Username == nil || *input.Username == oldUsername
+	notesUnchanged := input.Notes == nil || *input.Notes == oldNotes
+	concurrencyChanged := input.Concurrency != nil && *input.Concurrency != oldConcurrency
+	onlyConcurrencyChange := concurrencyChanged &&
+		input.Password == "" &&
+		input.Status == "" &&
+		input.AllowedGroups == nil &&
+		input.GroupRates == nil &&
+		input.Balance == nil &&
+		emailUnchanged &&
+		usernameUnchanged &&
+		notesUnchanged
+	noopUpdate := !concurrencyChanged &&
+		input.Password == "" &&
+		input.Status == "" &&
+		input.AllowedGroups == nil &&
+		input.GroupRates == nil &&
+		input.Balance == nil &&
+		emailUnchanged &&
+		usernameUnchanged &&
+		notesUnchanged
+
+	if onlyConcurrencyChange {
+		concurrencyDiff := *input.Concurrency - oldConcurrency
+		if concurrencyDiff != 0 {
+			if err := s.userRepo.UpdateConcurrency(ctx, user.ID, concurrencyDiff); err != nil {
+				return nil, err
+			}
+		}
+		user.Concurrency = *input.Concurrency
+	} else if !noopUpdate {
+		if input.Email != "" {
+			user.Email = input.Email
+		}
+		if input.Password != "" {
+			if err := user.SetPassword(input.Password); err != nil {
+				return nil, err
+			}
+		}
+
+		if input.Username != nil {
+			user.Username = *input.Username
+		}
+		if input.Notes != nil {
+			user.Notes = *input.Notes
+		}
+
+		if input.Status != "" {
+			user.Status = input.Status
+		}
+
+		if input.Concurrency != nil {
+			user.Concurrency = *input.Concurrency
+		}
+
+		if input.AllowedGroups != nil {
+			user.AllowedGroups = *input.AllowedGroups
+		}
+
+		if err := s.userRepo.Update(ctx, user); err != nil {
 			return nil, err
 		}
-	}
-
-	if input.Username != nil {
-		user.Username = *input.Username
-	}
-	if input.Notes != nil {
-		user.Notes = *input.Notes
-	}
-
-	if input.Status != "" {
-		user.Status = input.Status
-	}
-
-	if input.Concurrency != nil {
-		user.Concurrency = *input.Concurrency
-	}
-
-	if input.AllowedGroups != nil {
-		user.AllowedGroups = *input.AllowedGroups
-	}
-
-	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, err
 	}
 
 	// 同步用户专属分组倍率
